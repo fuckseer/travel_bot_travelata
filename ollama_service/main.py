@@ -1,25 +1,30 @@
-import json, requests, re
+import json
+import os
+import re
+import requests
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+# имя сервиса "ollama" доступно внутри docker-compose по сети
 OLLAMA_URL = "http://ollama:11434/api/generate"
-MODEL = "llama3:8b"
+MODEL = os.getenv("MODEL", "mistral:7b-instruct")
 
-PROMPT = """
+# Промпт: строго один JSON, без текста
+SYSTEM_PROMPT = """
 Ты — помощник по путешествиям.
-Ответь строго одним JSON-объектом, без текста до и после.
-Пример:
+Разбери запрос и верни только JSON-объект с параметрами:
+
 {
-  "month": "july",
-  "duration_days": 7,
-  "budget_eur": 1000,
+  "month": "",
+  "duration_days": 0,
+  "budget_eur": 0,
   "adults": 2,
   "kids": 0,
-  "country": "Spain",
-  "departure_city": "Moscow"
+  "country": "",
+  "departure_city": ""
 }
 
-Вопрос: {query}
+⚠️ ВАЖНО: верни только чистый JSON, без других слов.
 """
 
 class Query(BaseModel):
@@ -27,36 +32,41 @@ class Query(BaseModel):
 
 app = FastAPI()
 
-def safe_json_parse(llm_text: str) -> dict:
-    llm_text = llm_text.strip()
+def safe_json_parse(text: str) -> dict:
+    text = text.strip()
     try:
-        return json.loads(llm_text)
+        return json.loads(text)
     except Exception:
-        match = re.search(r"\{.*\}", llm_text, re.DOTALL)
+        match = re.search(r"\{.*\}", text, re.DOTALL)  # ищем {...} внутри
         if match:
             try:
                 return json.loads(match.group(0))
-            except Exception as e:
-                print("json parse error:", e)
+            except Exception as e2:
+                print("⚠ JSON parse error:", e2, "| raw:", text[:200])
     return {}
 
 @app.post("/parse")
 def parse_request(q: Query):
     payload = {
         "model": MODEL,
-        "prompt": PROMPT.format(query=q.query),
-        "options": {
-            "temperature": 0  # максимально детерминированный вывод
-        }
+        "prompt": SYSTEM_PROMPT + "\nЗапрос: " + q.query,
+        "stream": False
     }
-    response = requests.post(OLLAMA_URL, json=payload, stream=True)
 
-    full_text = ""
-    for line in response.iter_lines():
-        if line:
-            data = json.loads(line.decode())
-            if "response" in data:
-                full_text += data["response"]
+    response = requests.post(OLLAMA_URL, json=payload)
 
-    parsed = safe_json_parse(full_text)
-    return parsed or {"error": "Could not parse JSON", "raw": full_text}
+    if response.status_code != 200:
+        return {"error": "ollama_failed", "status": response.status_code, "body": response.text}
+
+    data = response.json()
+    # Ollama chat формат:
+    # { "message": { "role": "assistant", "content": "..." }, "done": true }
+    text = ""
+    if "message" in data and "content" in data["message"]:
+        text = data["message"]["content"]
+
+    parsed = safe_json_parse(text)
+    if not parsed:
+        return {"error": "parse_failed", "raw": text}
+
+    return parsed

@@ -1,5 +1,5 @@
 import sqlite3
-from bot_service.config import load_config
+from utils.config import load_config
 
 config = load_config()
 DB_PATH = config["database"]["path"]

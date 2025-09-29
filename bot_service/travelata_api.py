@@ -1,5 +1,5 @@
 import requests
-from bot_service.config import load_config
+from utils.config import load_config
 
 config = load_config()
 BASE_URL = config["travelata"]["base_url"]

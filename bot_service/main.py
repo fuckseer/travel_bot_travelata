@@ -1,4 +1,4 @@
-from bot_service.config import load_config
+from utils.config import load_config
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from bot_service import handlers
 
