@@ -13,8 +13,8 @@ def get_cheapest_tours(country_id: int, city_id: int, params: dict):
         "touristGroup[adults]": params.get("adults", 2),
         "touristGroup[kids]": params.get("kids", 0),
         "touristGroup[infants]": 0,
-        "checkInDateRange[from]": "2024-07-01",
-        "checkInDateRange[to]": "2024-07-31"
+        "checkInDateRange[from]": "2025-09-29",
+        "checkInDateRange[to]": "2025-12-31"
     }
     resp = requests.get(f"{BASE_URL}/statistic/cheapestTours", params=query)
     if resp.status_code == 200:

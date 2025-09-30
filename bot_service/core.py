@@ -1,4 +1,4 @@
-from bot_service.llm_client import parse_user_request
+from llm_service.llm_client import parse_user_request
 from bot_service.travelata_api import get_cheapest_tours
 from bot_service.db import save_tours
 
