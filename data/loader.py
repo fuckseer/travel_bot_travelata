@@ -88,8 +88,8 @@ def get_cheapest_tours(country_id: int, city_id: int, nights_from=7, nights_to=1
         "touristGroup[adults]": adults,
         "touristGroup[kids]": kids,
         "touristGroup[infants]": 0,
-        "checkInDateRange[from]": "2025-09-30",
-        "checkInDateRange[to]": "2025-10-31",
+        "checkInDateRange[from]": "2025-10-07",
+        "checkInDateRange[to]": "2025-11-06",
         "hotelCategories[]": [2, 3, 4, 5],  # 2-5*
         "resorts[]": [2175, 3001]  # любые курорты страны (из справочника)
     }
@@ -154,10 +154,10 @@ if __name__ == "__main__":
     save_hotel_categories()
     save_meals()
 
-    countries = {92: "Турция", 162: "Египет", 191: "Таиланд"}
-    cities = {2: "Москва", 8: "Екатеринбург"}
+    countries = {92: "Турция"}
+    cities = {2: "Москва", 25: "Екатеринбург"}
 
     for c_id in countries:
         for city_id in cities:
-            print(f"🔎 Загружаю {countries[c_id]} из {cities[city_id]} (7–12 ночей)")
-            load_and_save_cheapest_tours(c_id, city_id, 7, 12)
+            print(f"🔎 Загружаю {countries[c_id]} из {cities[city_id]} (5–14 ночей)")
+            load_and_save_cheapest_tours(c_id, city_id, 5, 14)
