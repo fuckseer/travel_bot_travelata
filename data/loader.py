@@ -90,8 +90,8 @@ def get_cheapest_tours(country_id: int, city_id: int, nights_from=7, nights_to=1
         "touristGroup[infants]": 0,
         "checkInDateRange[from]": "2025-10-07",
         "checkInDateRange[to]": "2025-11-06",
-        "hotelCategories[]": [2, 3, 4, 5],  # 2-5*
-        "resorts[]": [2175, 3001]  # любые курорты страны (из справочника)
+        "hotelCategories[]": [2, 3, 4, 7, 8],  # 2-5*
+        "resorts[]": [2162, 2163, 2159]  # любые курорты страны (из справочника)
     }
     resp = requests.get(f"{BASE_URL}/statistic/cheapestTours", params=query, headers=HEADERS)
     if resp.status_code == 200:

@@ -73,7 +73,7 @@ def get_meal_ids_by_name(meal: str) -> list[int]:
 
     # правила для синонимов
     group_map = {
-        "все включено": ["всё включено", "all inclusive"],
+        "все включено": ["всё включено", "all inclusive", "ультра всё включено"],
         "ультра все включено": ["ультра всё включено", "ultra all inclusive"],
         "без алкоголя": ["без алкоголя"],
         "завтрак": ["завтрак", "breakfast"],
@@ -91,17 +91,18 @@ def get_meal_ids_by_name(meal: str) -> list[int]:
         return res
 
     # собираем все варианты
+        # === обновлённая часть ===
     for key, synonyms in group_map.items():
         if any(syn in name for syn in synonyms):
             ids.extend(find_like(key))
             ids.extend(find_like(synonyms[0]))
-            break
+            # без break — ищем все группы
+    # === конец обновлённой части ===
 
-    # если ничего не нашли — ищем просто по подстроке
+    # если ничего не нашли вообще — fallback‑поиск
     if not ids:
         for k, v in MEAL_MAP.items():
             if name in k or k in name:
                 ids.append(v)
 
-    # уникальные ID
     return list(set(ids))
