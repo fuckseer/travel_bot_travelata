@@ -4,6 +4,8 @@ from utils.config import load_config
 from sentence_transformers import SentenceTransformer, util
 from math import fabs
 
+from utils.db_helpers import get_meal_ids_by_name
+
 # === Config & model init ===
 config = load_config()
 DB_PATH = config["database"]["path"]
@@ -108,8 +110,26 @@ def sql_filter(params, limit=100):
 
     # Питание
     if params.get("meal_id"):
-        query += " AND meal_id = :meal_id"
-        q_params["meal_id"] = params["meal_id"]
+        meal_value = params["meal_id"]
+        if isinstance(meal_value, list):
+            meal_placeholders = []
+            for i, mid in enumerate(meal_value):
+                key = f"meal_{i}"
+                meal_placeholders.append(f":{key}")
+                q_params[key] = mid
+            query += f" AND meal_id IN ({','.join(meal_placeholders)})"
+        else:
+            query += " AND meal_id = :meal_id"
+            q_params["meal_id"] = meal_value
+    elif params.get("meal"):
+        ids = get_meal_ids_by_name(params["meal"])
+        if ids:
+            meal_placeholders = []
+            for i, mid in enumerate(ids):
+                name = f"meal_{i}"
+                meal_placeholders.append(f":{name}")
+                q_params[name] = mid
+            query += f" AND meal_id IN ({','.join(meal_placeholders)})"
 
     # Количество ночей
     if params.get("duration_days"):

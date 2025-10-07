@@ -61,17 +61,47 @@ def get_hotel_category_id_by_name(category: str) -> int | None:
         text = "4"
     return _find_in_lookup(CATEGORY_MAP, text)
 
-def get_meal_id_by_name(meal: str) -> int | None:
-    """Ищет ID типа питания, например 'all inclusive' или 'всё включено'."""
+def get_meal_ids_by_name(meal: str) -> list[int]:
+    """
+    Возвращает список id типов питания, подходящих под запрос (все вариации 'всё включено' и т.д.)
+    """
     if not meal:
-        return None
-    synonyms = {
-        "всё включено": "все включено",
-        "все включено": "все включено",
-        "all inclusive": "все включено",
-        "завтрак": "завтрак",
-        "полупансион": "полупансион",
-        "без питания": "без питания",
+        return []
+
+    name = meal.lower()
+    ids = []
+
+    # правила для синонимов
+    group_map = {
+        "все включено": ["всё включено", "all inclusive"],
+        "ультра все включено": ["ультра всё включено", "ultra all inclusive"],
+        "без алкоголя": ["без алкоголя"],
+        "завтрак": ["завтрак", "breakfast"],
+        "полупансион": ["завтрак+ужин", "завтрак и ужин", "half board"],
+        "полный пансион": ["завтрак, обед, ужин", "full board"],
+        "без питания": ["без питания", "no meals"]
     }
-    key = synonyms.get(meal.lower(), meal.lower())
-    return _find_in_lookup(MEAL_MAP, key)
+
+    # вспомогательная функция для поиска по подстроке
+    def find_like(needle):
+        res = []
+        for k, v in MEAL_MAP.items():
+            if needle in k:
+                res.append(v)
+        return res
+
+    # собираем все варианты
+    for key, synonyms in group_map.items():
+        if any(syn in name for syn in synonyms):
+            ids.extend(find_like(key))
+            ids.extend(find_like(synonyms[0]))
+            break
+
+    # если ничего не нашли — ищем просто по подстроке
+    if not ids:
+        for k, v in MEAL_MAP.items():
+            if name in k or k in name:
+                ids.append(v)
+
+    # уникальные ID
+    return list(set(ids))

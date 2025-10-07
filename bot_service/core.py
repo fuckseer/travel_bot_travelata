@@ -6,9 +6,8 @@ from utils.config import load_config
 from utils.db_helpers import (
     get_city_id_by_name,
     get_country_id_by_name,
-    get_meal_id_by_name,
     get_hotel_category_id_by_name,
-    get_resort_id_by_name,
+    get_resort_id_by_name, get_meal_ids_by_name,
 )
 
 config = load_config()
@@ -55,7 +54,7 @@ def enrich_with_reference_ids(params):
 
     # питание
     if params.get("meal") and not params.get("meal_id"):
-        mid = get_meal_id_by_name(params["meal"])
+        mid = get_meal_ids_by_name(params["meal"])
         if mid:
             params["meal_id"] = mid
 
