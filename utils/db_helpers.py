@@ -1,8 +1,8 @@
 import sqlite3
-from utils.config import load_config
+from utils.config import load_config, get_db_path
 
 config = load_config()
-DB_PATH = config["database"]["path"]
+DB_PATH = get_db_path(config)
 
 
 # --- Универсальные функции ---

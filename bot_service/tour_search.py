@@ -1,6 +1,6 @@
 import sqlite3
 import datetime
-from utils.config import load_config
+from utils.config import load_config, get_db_path
 from sentence_transformers import SentenceTransformer, util
 from math import fabs
 
@@ -8,7 +8,7 @@ from utils.db_helpers import get_meal_ids_by_name
 
 # === Config & model init ===
 config = load_config()
-DB_PATH = config["database"]["path"]
+DB_PATH = get_db_path(config)
 
 # лёгкая multilingual модель для эмбеддингов
 # (поддерживает русский и английский)
@@ -74,95 +74,98 @@ def get_country_id_by_name(country_name: str) -> int | None:
 
 def sql_filter(params, limit=100):
     """
-    Отбор туров по SQL-фильтрам:
-    страна, город, ночи, бюджет, дата, курорт, категория отеля, питание.
+    SQL фильтр: страна, город, ночи, бюджет, дата, курорт, категория отеля, питание.
+    Теперь тянем описание отеля из hotel_descriptions.
     """
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
-
     query = """
-        SELECT id, hotel_name, nights, price, currency, url, check_in,
-               hotel_category_id, meal_id, resort_id
-        FROM tours
+        SELECT t.id,
+               t.hotel_name,
+               t.nights,
+               t.price,
+               t.currency,
+               t.url,
+               t.check_in,
+               t.hotel_category_id,
+               t.meal_id,
+               t.resort_id,
+               hd.description
+        FROM tours AS t
+        LEFT JOIN hotel_descriptions AS hd
+            ON t.api_id = hd.hotel_api_id
         WHERE 1=1
     """
     q_params = {}
-
-    # Страна
+    # --- стандартные фильтры ---
     if params.get("country_id"):
-        query += " AND country_id = :country_id"
+        query += " AND t.country_id = :country_id"
         q_params["country_id"] = params["country_id"]
 
-    # Город вылета
     if params.get("city_id"):
-        query += " AND city_id = :city_id"
+        query += " AND t.city_id = :city_id"
         q_params["city_id"] = params["city_id"]
 
-    # Курорт
     if params.get("resort_id"):
-        query += " AND resort_id = :resort_id"
+        query += " AND t.resort_id = :resort_id"
         q_params["resort_id"] = params["resort_id"]
 
-    # Категория отеля
     if params.get("hotel_category_id"):
-        query += " AND hotel_category_id = :hotel_category_id"
+        query += " AND t.hotel_category_id = :hotel_category_id"
         q_params["hotel_category_id"] = params["hotel_category_id"]
 
-    # Питание
+    # --- питание ---
     if params.get("meal_id"):
         meal_value = params["meal_id"]
         if isinstance(meal_value, list):
-            meal_placeholders = []
+            placeholders = []
             for i, mid in enumerate(meal_value):
                 key = f"meal_{i}"
-                meal_placeholders.append(f":{key}")
+                placeholders.append(f":{key}")
                 q_params[key] = mid
-            query += f" AND meal_id IN ({','.join(meal_placeholders)})"
+            query += " AND t.meal_id IN (" + ",".join(placeholders) + ")"
         else:
-            query += " AND meal_id = :meal_id"
+            query += " AND t.meal_id = :meal_id"
             q_params["meal_id"] = meal_value
     elif params.get("meal"):
         ids = get_meal_ids_by_name(params["meal"])
         if ids:
             meal_placeholders = []
             for i, mid in enumerate(ids):
-                name = f"meal_{i}"
-                meal_placeholders.append(f":{name}")
-                q_params[name] = mid
-            query += f" AND meal_id IN ({','.join(meal_placeholders)})"
+                key = f"meal_{i}"
+                meal_placeholders.append(f":{key}")
+                q_params[key] = mid
+            query += f" AND t.meal_id IN ({','.join(meal_placeholders)})"
 
-    # Количество ночей
     if params.get("duration_days"):
         d = int(params["duration_days"])
-        query += " AND nights BETWEEN :nfrom AND :nto"
+        query += " AND t.nights BETWEEN :nfrom AND :nto"
         q_params["nfrom"] = max(d - 1, 1)
         q_params["nto"] = d + 1
 
-    # Бюджет (евро → рубли ~100)
     if params.get("budget_eur"):
-        query += " AND price <= :budget"
+        query += " AND t.price <= :budget"
         q_params["budget"] = int(params["budget_eur"] * 100)
 
-    # Дата (либо диапазон)
     if params.get("check_in_date"):
         d = params["check_in_date"]
-        query += " AND check_in BETWEEN :date_from AND :date_to"
+        query += " AND t.check_in BETWEEN :date_from AND :date_to"
         q_params["date_from"] = d
         q_params["date_to"] = add_days(d, 5)
     elif params.get("check_in_range"):
         d_from = params["check_in_range"].get("from")
         d_to = params["check_in_range"].get("to")
         if d_from and d_to:
-            query += " AND check_in BETWEEN :date_from AND :date_to"
+            query += " AND t.check_in BETWEEN :date_from AND :date_to"
             q_params["date_from"] = d_from
             q_params["date_to"] = d_to
     elif params.get("month"):
         m = month_to_number(params["month"])
         if m:
-            query += " AND CAST(strftime('%m', check_in) AS INT) = :month"
+            query += " AND CAST(strftime('%m', t.check_in) AS INT) = :month"
             q_params["month"] = m
 
-    query += " ORDER BY price ASC LIMIT :limit"
+    query += " ORDER BY t.price ASC LIMIT :limit"
     q_params["limit"] = limit
 
     cur.execute(query, q_params)
@@ -181,25 +184,25 @@ def sql_filter(params, limit=100):
             "hotel_category_id": row[7],
             "meal_id": row[8],
             "resort_id": row[9],
+            "description": row[10] or "",  # добавляем текст описания
         }
         for row in rows
     ]
 
-    # Удалим дубликаты отелей с одинаковой датой
-    unique = {}
+    # убираем дубликаты по hotel+check_in
+    uniq = {}
     for t in results:
-        key = (t["hotel_name"], t["check_in"])
-        if key not in unique:
-            unique[key] = t
-    return list(unique.values())
+        k = (t["hotel_name"], t["check_in"])
+        if k not in uniq:
+            uniq[k] = t
+    return list(uniq.values())
 
 
 # === RAG rerank ===
 
 def rag_rerank(tours, preferences, duration_days=None, top_k=5):
     """
-    Перерасчёт туров по смысловой схожести с пожеланиями (Semantic RAG)
-    + штраф за отклонение по количеству ночей.
+    Перерасчёт по смысловой схожести предпочтений пользователя к описанию отеля.
     """
     if not tours:
         return []
@@ -209,20 +212,26 @@ def rag_rerank(tours, preferences, duration_days=None, top_k=5):
     pref_text = ", ".join(preferences)
     pref_vec = embedder.encode(pref_text, convert_to_tensor=True)
 
-    tour_texts = [f"{t['hotel_name']} cat:{t['hotel_category_id']} meal:{t['meal_id']}"
-                  for t in tours]
+    # формируем текст для эмбеддинга тура
+    tour_texts = []
+    for t in tours:
+        base = f"{t['hotel_name']} cat:{t['hotel_category_id']} meal:{t['meal_id']}"
+        # добавляем описание если есть
+        if t.get("description"):
+            base += " " + t["description"][:2000]  # ограничим длину эмбеддинга
+        tour_texts.append(base)
+
     tour_vecs = embedder.encode(tour_texts, convert_to_tensor=True)
     sims = util.cos_sim(pref_vec, tour_vecs)[0]
 
     scored = []
     for t, s in zip(tours, sims):
         score = float(s)
+        # штраф за отличие по ночам (если указано)
         if duration_days and t.get("nights"):
-            # penalty за отличие по длительности
             score -= fabs(t["nights"] - duration_days) * 0.05
         scored.append((t, score))
 
-    # Сортировка: сначала по score, потом по check_in / price
     best = sorted(scored, key=lambda x: (-x[1], x[0]["check_in"], x[0]["price"]))
     return [t for t, _ in best[:top_k]]
 
@@ -230,13 +239,9 @@ def rag_rerank(tours, preferences, duration_days=None, top_k=5):
 # === Main find ===
 
 def find_tours(params):
-    """
-    Главная функция: SQL фильтр + RAG rerank.
-    """
-    candidates = sql_filter(params, limit=100)
+    candidates = sql_filter(params, limit=200)
     if not candidates:
         return []
-
     prefs = params.get("preferences", [])
     best = rag_rerank(candidates, prefs, duration_days=params.get("duration_days"), top_k=5)
     return best
