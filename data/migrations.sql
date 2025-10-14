@@ -47,13 +47,20 @@ CREATE TABLE IF NOT EXISTS tours (
     kids INTEGER DEFAULT 0,
     hotel_category_id INTEGER,     -- категория отеля
     meal_id INTEGER,               -- питание
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
     FOREIGN KEY (country_id) REFERENCES countries(id),
     FOREIGN KEY (city_id) REFERENCES cities(id),
     FOREIGN KEY (resort_id) REFERENCES resorts(id),
     FOREIGN KEY (hotel_category_id) REFERENCES hotel_categories(id),
     FOREIGN KEY (meal_id) REFERENCES meals(id)
+);
+
+CREATE TABLE IF NOT EXISTS hotel_descriptions (
+    hotel_api_id INTEGER PRIMARY KEY,
+    hotel_name TEXT,
+    description TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Индексы для ускорения поиска туров
