@@ -84,5 +84,6 @@ def process_user_query(user_text: str) -> str:
         reply += (f"🏨 {t['hotel_name']} ({t['nights']} ночей)\n"
                   f"💰 {t['price']} {t['currency']}\n"
                   f"📅 Заезд: {t['check_in']}\n"
-                  f"🔗 {t['url']}\n\n")
+                  f"🔗 {t['url']}\n"
+                  f"🔎 {t['reason']}\n\n")
     return reply

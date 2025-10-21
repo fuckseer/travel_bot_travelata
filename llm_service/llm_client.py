@@ -1,6 +1,7 @@
-import os
 import json
 import re
+import time
+
 import requests
 from utils.config import load_config
 
@@ -118,53 +119,56 @@ Rules
 
 """
 
-
-import re, json
-
 def safe_json_parse(text: str) -> dict:
-    text = text.strip()
-    # если LLM зачем-то экранировал _ как \_
-    text = text.replace("\\_", "_")
+    text = text.strip().replace("\\_", "_")
     try:
         data = json.loads(text)
         if isinstance(data, str):
-            text2 = data.replace("\\_", "_")
-            data = json.loads(text2)
+            data = json.loads(data)
         return data
     except Exception:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            snippet = match.group(0).replace("\\_", "_")
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if m:
             try:
-                data = json.loads(snippet)
+                data = json.loads(m.group(0))
                 if isinstance(data, str):
-                    data = json.loads(data.replace("\\_", "_"))
+                    data = json.loads(data)
                 return data
-            except Exception as e:
+            except Exception:
                 pass
     return {"raw": text}
 
-
-def parse_user_request(query: str) -> dict:
+def call_llm(messages: list[dict], temperature: float = 0.2) -> str:
+    """Общий запрос к OpenRouter — с повтором и паузой при 404."""
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
     }
 
-    payload = {
-        "model": MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": query},
-        ],
-        "temperature": 0,
-    }
+    payload = {"model": MODEL, "messages": messages, "temperature": temperature}
 
-    resp = requests.post(API_URL, headers=headers, json=payload)
+    for attempt in range(3):                               # максимум 3 попытки
+        resp = requests.post(API_URL, headers=headers, json=payload, timeout=45)
+        if resp.ok:
+            j = resp.json()
+            return j["choices"][0]["message"]["content"]
 
-    if resp.status_code != 200:
-        return {"error": resp.status_code, "details": resp.text}
+        # 404 – обычно rate‑limit или privacy: ждём и повторяем
+        if resp.status_code in (404, 429, 503):
+            print(f"[LLM] {resp.status_code}, повтор через 3 сек.")
+            time.sleep(3)
+            continue
 
-    data = resp.json()
-    content = data["choices"][0]["message"]["content"]
-    return safe_json_parse(content)
+        raise RuntimeError(f"LLM error {resp.status_code}: {resp.text}")
+
+    raise RuntimeError("LLM сервис не вернул корректный ответ после 3 попыток.")
+# ----------------------------------------------------------------------------
+# 1️⃣ парсинг пользовательского запроса → structured JSON
+# ----------------------------------------------------------------------------
+def parse_user_request(query: str) -> dict:
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": query},
+    ]
+    text = call_llm(messages, temperature=0)
+    return safe_json_parse(text)
