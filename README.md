@@ -1,201 +1,143 @@
-# 🌍 AI Travel Assistant Bot
 
-🤖 **AI Travel Assistant** is a Telegram bot that helps users find the best travel deals.  
-It combines **LLM (LLM-service)** for natural language understanding + **Travelata API** for real tours + **RAG-powered semantic search** to handle flexible user preferences like *“first beach line with bar by the sea”*.  
+# 🤖 AI Travel Assistant
 
----
-
-## ✨ Features
-
-- 🔎 **Natural Language Input**  
-  Users just type:  
-  *“I want to go to Turkey in July from Moscow, 7–10 nights, budget 1200 €, first line with a beach bar”*  
-
-- 🧠 **LLM-powered Understanding**  
-  JSON structure extraction with [LLM Service](llm_service/):  
-  ```json
-  {
-    "country": "Turkey",
-    "month": "July",
-    "duration_days": 7,
-    "budget_eur": 1200,
-    "adults": 2,
-    "preferences": ["first beach line", "bar by the sea"]
-  }
-  ```
-
-- 🗂️ **Travelata API Integration**  
-  Real tours loaded into SQLite from `Travelata` (countries, cities, resorts, hotels, categories, meals).
-
-- ⚡ **Hybrid Search**  
-  - **SQL filters** → country, dates, budget, nights  
-  - **Semantic RAG reranking** → preferences matched via `sentence-transformers`.
-
-- 🎯 **Telegram Bot**  
-  Easy interaction with a friendly chat interface.
+**AI Travel Assistant** — это умный Telegram‑бот, который помогает подбирать туры из базы Travelata.  
+Он понимает живой текст пользователя (“Хочу в Турцию, первая линия, всё включено, до 1200 €”),
+структурирует запрос через LLM (OpenRouter), фильтрует туры по SQL, а затем
+*семантически переранжирует (LLM Rerank)* результаты по смыслу описаний отелей.
 
 ---
 
-## 🏗️ Architecture
+## 🎥 Демо
 
-```mermaid
-flowchart TD
+[![Watch video]()](https://www.youtube.com/watch?v=YOUR_VIDEO_ID "AI Travel Assistant demo")
 
-    User[👤 Telegram User] -->|message| BotService
+---
 
-    subgraph BotService [🤖 bot-service]
-        Handlers --> Core
-        Core -->|POST /parse| LLMService
-        Core --> SearchTours
-        SearchTours --> SQLite[(Travelata DB)]
-    end
+## ✨ Основные возможности
+- 💬 **Натуральный язык.** Пользователь просто пишет, как если бы говорил с агентом;
+- 🧠 **LLM‑парсер.** OpenRouter LLM выделяет страну, даты, бюджет, тип питания, предпочтения;
+- 🗂 **Travelata API + SQLite.** Реальные туры и отели кэшируются для быстрого SQL‑поиска;
+- ⚡️ **Гибридный поиск.**  
+  - *SQL фильтры* → страна, дата, ночи, бюджет, питание;  
+  - *LLM Rerank* → переоценка по смыслу описаний отелей (через `llm_service:/similarity`);
+- 🗣 **Объяснение.** Для каждого результата генерируется короткое «почему выбран именно этот отель» (через `llm_service:/summarize`);
+- 🤖 **Telegram‑бот** на `python‑telegram‑bot v20`.
 
-    subgraph LLMService [🧠 llm-service]
-        API[/FastAPI endpoint: /parse/] --> LLMModel
-    end
+---
 
-    LLMModel -->|Parse preferences| OpenRouter/DeepSeek/HF
+## 🏗️ Архитектура
 
-    BotService --> TravelataAPI["Travelata API /statistic/cheapestTours"]
+```
+ai-travel-bot/
+├── bot_service/          # Telegram‑бот и логика поиска
+│   ├── core.py           # обработка запросов пользователя
+│   ├── tour_search.py    # SQL + LLM Rerank + Summarization
+│   ├── handlers.py       # Telegram‑обработчики сообщений
+├── llm_service/          # FastAPI‑сервис с OpenRouter‑LLM
+│   ├── main.py           # endpoints /parse /similarity /summarize
+│   └── llm_client.py     # низкоуровневые вызовы OpenRouter API
+├── data/                 # SQLite база и словари
+├── config.yaml           # токены, пути, ключи LLM
+├── docker-compose.yaml   # быстрый запуск в двух сервисах
+└── README.md
 ```
 
-- `bot_service/` → Telegram + business logic  
-- `llm_service/` → JSON parser over LLM API (OpenRouter/DeepSeek/HuggingFace)  
-- `search_tours/` → SQL + RAG search  
-- `data/` + SQLite → cached Travelata tours & dictionaries  
+### 🔁 Поток запроса
+1. **Пользователь** пишет:  
+   `Хочу в Турцию в июле, 7 ночей, первая линия, всё включено, 1200 €`;
+2. **`llm_service:/parse`** создаёт JSON-параметры;
+3. **`bot_service/sql_filter()`** находит кандидатов в SQLite;
+4. **`llm_service:/similarity`** выполняет *LLM Rerank*: оценивает смысловую схожесть
+   между пожеланиями и описанием отеля;
+5. **`llm_service:/summarize`** генерирует объяснение выбора;
+6. **Telegram‑бот** возвращает от пользователя:
+   ```
+   🏨 Sherwood Dreams Resort — 194 486 RUB
+   📅 29 окт 2025
+   🤖 Отель на первой линии, питание Ultra AI, подходит для спокойного пляжного отдыха.
+   ```
 
 ---
 
-## 🛠️ Tech Stack
+## 🧠 LLM Reranking (Semantic RAG)
 
-- **LLM**: OpenRouter / DeepSeek / HuggingFace (Sentence Transformers for embeddings)  
-- **Bot**: [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)  
-- **DB**: SQLite + FAISS (RAG search)  
-- **API Integration**: Travelata API (tours, countries, meals, hotel categories)  
-- **Services**: Docker Compose microservices (`bot-service`, `llm-service`)  
-- **Deployment**: Docker  
+**LLM Rerank** — ключевая часть поиска:
+
+- На вход:  
+  *описания отелей* (из `hotel_descriptions.description`) и *мягкие предпочтения* пользователя;
+- Сервис `/similarity` в `llm_service` формирует prompt:  
+  > «Оцени сходство между пожеланиями и описанием отеля — верни число 0–1».
+- Полученный score используется для сортировки результатов (чем выше, тем релевантнее).
+- Таким образом, система не просто фильтрует, но и понимает смысл запроса:
+  *"бар у моря", "первая линия", "для детей" и т.п.*
 
 ---
 
-## 🚀 Getting Started
+## 🐳 Быстрый старт
 
-### 1. Clone repo
 ```bash
-git clone https://github.com/your-username/travel-bot.git
-cd travel-bot
+git clone https://github.com/yourname/ai-travel-bot.git
+cd ai-travel-bot
+
+# отредактируйте config.yaml (Telegram token, OpenRouter API‑key)
+docker-compose up --build
 ```
 
-### 2. Prepare `config.yaml`
+После сборки:
+- Бот будет доступен как `bot-service`,  
+- LLM‑сервис на `http://localhost:8001`.
+
+---
+
+## ⚙️ config.yaml пример
+
 ```yaml
 telegram:
   token: "YOUR_TELEGRAM_BOT_TOKEN"
 
 travelata:
   base_url: "https://api-gateway.travelata.ru"
-  token: "YOUR_TRAVELATA_PARTNER_TOKEN"
-  auth_mode: "Token"
+  token: "YOUR_TRAVELATA_TOKEN"
 
 database:
   path: "data/travelata.db"
 
+llm:
+  api_key: "sk-your-openrouter-key"
+  model: "mistralai/mixtral-8x7b"
+
 llm_service:
-  url: "http://llm-service:8001/parse"
-```
-
-### 3. Run migrations
-```bash
-python init_db.py   # creates data/travelata.db with tables
-```
-
-### 4. Build services
-```bash
-docker-compose up --build
+  url_parse: "http://llm-service:8001/parse"
+  url_similarity: "http://llm-service:8001/similarity"
+  url_summarize: "http://llm-service:8001/summarize"
 ```
 
 ---
 
-## 💬 Usage
+## 🧭 Команды Docker
 
-1. Open your bot in Telegram (`@YourBotName`)  
-2. Send a message like:  
-
-```
-I want to go to Egypt in February, 10 nights, All Inclusive, 1000€, from Moscow
-```
-
-3. Bot replies with tours:  
-
-```
-🔥 Found 3 tours:
-
-🏨 Hilton Hurghada Plaza (10 nights)
-💰 98,000 RUB
-📅 Check-in: 2025-02-05
-🔗 travelata.ru/hotel/...
-
-...
-```
+| Операция | Команда |
+|-----------|----------|
+| Сборка и запуск | `docker-compose up --build` |
+| Просмотр логов | `docker-compose logs -f bot-service` |
+| Подключиться к БД | `docker exec -it bot-service sqlite3 /data/travelata.db` |
+| Очистить | `docker-compose down -v` |
 
 ---
 
-## 🔍 Search Logic (ML)
-
-1. **Structured SQL filtering**:  
-   ```
-   country_id=162, nights=7–12, budget<=1200€
-   ```
-2. **RAG reranking**: semantic similarity via `paraphrase-multilingual-MiniLM-L12-v2`  
-   ```python
-   util.cos_sim(embedding(preferences), embedding(hotel_features))
-   ```
-3. Top‑N results → sent to Telegram.
+## 📈 Развитие проекта
+- [ ] Добавить кэш открытых embedding’ов (FastAPI memory / Redis);  
+- [ ] Поддержка нескольких источников (Travelata, Expedia, Aviasales);  
+- [ ] Рейтинг качества LLM‑rerank (метрики nDCG / MRR);  
+- [ ] Web‑интерфейс (Streamlit / React) для демо.
 
 ---
 
-## 📂 Project Structure
-
-```
-travel_bot/
-├── bot_service/         # Telegram bot logic
-│   ├── core.py
-│   ├── handlers.py
-│   ├── main.py
-│   └── search_tours.py
-├── llm_service/         # LLM (FastAPI service)
-│   ├── main.py
-├── utils/               # helpers (config loader etc.)
-├── data/                # SQLite DB + migrations
-│   ├── migrations.sql
-│   └── loader.py
-├── docker-compose.yaml
-├── config.yaml
-└── README.md
-```
+## 🧾 Лицензия
+MIT License  
 
 ---
 
-## 🎯 TODO / Roadmap
-
-- [ ] Add fallback: reload Travelata tours if DB misses results  
-- [ ] Improve preferences → map to categorical filters (meals, hotel stars)  
-- [ ] Frontend: Web UI (Streamlit/React)  
-- [ ] Add multi-user session context  
-- [ ] Deploy to cloud (Railway/Render + scalable DB)  
-
----
-
-## 🤝 Contributing
-
-Pull requests and issues are welcome!  
-You can:  
-- Add more travel APIs (Booking, Aviasales, Expedia)  
-- Improve RAG embeddings (try `e5-large-v2`, `bge-m3`)  
-- Enhance formatting for Telegram replies  
-
----
-
-## 📜 License
-
-MIT License. Free for personal and commercial use.  
-
----
+### 🙌 Нашли ошибку?
+Присылайте PR или создайте Issue — будем рады сделать бота ещё умнее 🚀
