@@ -10,7 +10,7 @@
 
 ## 🎥 Демо
 
-[![Watch video]()](https://www.youtube.com/watch?v=YOUR_VIDEO_ID "AI Travel Assistant demo")
+![AI Travel Assistant demo](demo.gif)
 
 ---
 
